@@ -1,0 +1,4 @@
+-- stg_incidents.sql
+-- Staging model: cast and rename raw Iceberg incident columns to clean types.
+-- Source: raw incidents table written by streaming_job.py
+-- Status: PLACEHOLDER — implemented in Phase 5

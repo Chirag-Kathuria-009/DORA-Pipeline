@@ -1,0 +1,4 @@
+-- mart_sla_breach.sql
+-- Mart: incidents that breached their BaFin notification SLA deadline.
+-- Flags CRITICAL incidents not notified within 4h and MAJOR within 72h.
+-- Status: PLACEHOLDER — implemented in Phase 5

@@ -1,0 +1,4 @@
+-- mart_bafin_report.sql
+-- Mart: incidents requiring BaFin notification (CRITICAL within 4h, MAJOR within 72h).
+-- Used by the Superset compliance dashboard and regulatory export.
+-- Status: PLACEHOLDER — implemented in Phase 5

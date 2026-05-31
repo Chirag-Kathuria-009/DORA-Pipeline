@@ -1,0 +1,9 @@
+{
+  "expectation_suite_name": "incidents_suite",
+  "data_asset_type": null,
+  "expectations": [],
+  "meta": {
+    "great_expectations_version": "0.18.x",
+    "notes": "PLACEHOLDER — expectations added in Phase 5. Will validate IncidentEvent fields: non-null incident_id, severity in [CRITICAL, MAJOR, MINOR], clients_affected_pct in [0, 100]."
+  }
+}

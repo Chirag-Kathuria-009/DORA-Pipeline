@@ -1,0 +1,4 @@
+-- mart_vendor_risk.sql
+-- Mart: aggregated third-party vendor risk scores derived from incident history.
+-- Groups by third_party_provider, counts incidents by severity tier.
+-- Status: PLACEHOLDER — implemented in Phase 5

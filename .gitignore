@@ -1,0 +1,40 @@
+# ── Credentials & secrets (NEVER commit these) ────────────────────────────────
+.env
+.env.example
+transform/dbt_project/profiles.yml
+
+# ── Internal / meta files (not for public repo) ───────────────────────────────
+claude.md
+decisions.md
+DORA_Pipeline_ClaudeCode_Guide.md
+DORA_Pipeline_Master_Reference.md
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+.venv/
+venv/
+env/
+dist/
+build/
+
+# ── dbt ───────────────────────────────────────────────────────────────────────
+target/
+dbt_packages/
+logs/
+
+# ── Jupyter ───────────────────────────────────────────────────────────────────
+.ipynb_checkpoints/
+
+# ── OS ────────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── IDE ───────────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo

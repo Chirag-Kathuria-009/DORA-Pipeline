@@ -1,0 +1,4 @@
+-- int_dora_classified.sql
+-- Intermediate model: join stg_incidents with classification results,
+-- add BaFin notification deadline columns based on severity tier.
+-- Status: PLACEHOLDER — implemented in Phase 5

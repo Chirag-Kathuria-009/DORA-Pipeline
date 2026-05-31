@@ -1,0 +1,4 @@
+-- assert_no_null_severity.sql
+-- dbt singular test: asserts that no incident row has a NULL severity value.
+-- Returns rows that violate the constraint (dbt fails if any rows returned).
+-- Status: PLACEHOLDER — implemented in Phase 5
