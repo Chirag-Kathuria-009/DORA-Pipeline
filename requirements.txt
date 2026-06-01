@@ -1,0 +1,66 @@
+# ============================================================
+# DORA ICT Incident Intelligence Pipeline — Python dependencies
+# Python 3.11 (target — matches Docker service images; local 3.12 works for Phases 1-3)
+#
+# Sections are organised by project phase.
+# Uncomment the relevant block when starting that phase.
+#
+# Recommended setup (run once):
+#   python -m venv .venv
+#   .\.venv\Scripts\Activate.ps1     # Windows PowerShell
+#   source .venv/bin/activate         # macOS / Linux
+#   pip install -r requirements.txt
+# ============================================================
+
+
+# ------------------------------------------------------------
+# Phase 1 — Infrastructure  (topics_setup.py, s3_config.py)
+# ------------------------------------------------------------
+confluent-kafka==2.14.0
+boto3==1.43.17
+
+
+# ------------------------------------------------------------
+# Phase 2 — Simulator & Schema  (schema.py, incident_generator.py)
+# ------------------------------------------------------------
+pydantic>=2.7,<3.0
+faker>=33.0,<34.0
+
+
+# ------------------------------------------------------------
+# Phase 3 — DORA Classifier  (dora_classifier.py, test_classifier.py)
+# No new runtime packages — uses stdlib + pydantic from Phase 2
+# ------------------------------------------------------------
+pytest>=8.0,<9.0          # test runner used across all phases
+
+
+# ------------------------------------------------------------
+# Phase 4 — Streaming Job  (streaming_job.py, enrichment.py, iceberg_tables.py)
+# ------------------------------------------------------------
+# pyspark==3.5.1
+# pyiceberg[s3fs,pyarrow]>=0.7,<1.0
+
+
+# ------------------------------------------------------------
+# Phase 5 — dbt & Data Quality  (dbt_project/, great_expectations/)
+# ------------------------------------------------------------
+# dbt-core>=1.8,<2.0
+# dbt-postgres>=1.8,<2.0
+# great-expectations>=0.18,<1.0
+# psycopg2-binary>=2.9,<3.0
+
+
+# ------------------------------------------------------------
+# Phase 6 — Airflow  (orchestration/dags/)
+# Airflow has complex constraints — install with the official constraint file:
+#   pip install apache-airflow==2.8.0 \
+#     --constraint "https://raw.githubusercontent.com/apache/airflow/constraints-2.8.0/constraints-3.11.txt"
+# ------------------------------------------------------------
+# apache-airflow==2.8.0
+
+
+# ------------------------------------------------------------
+# Phase 7 — Dashboard  (dashboard/superset_config.py)
+# Superset runs in Docker; only needed if running bootstrap script locally
+# ------------------------------------------------------------
+# apache-superset>=3.0,<4.0

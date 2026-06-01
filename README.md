@@ -104,8 +104,8 @@ patterns you would use in a production financial institution.
 |---|---|---|
 | **0** | Folder structure scaffold | ✅ Complete |
 | **1** | Infrastructure — Docker stack, Kafka topics, MinIO setup | ✅ Complete |
-| **2** | Simulator & Schema — `IncidentEvent` model, Kafka producer | 🔄 In progress |
-| **3** | DORA Classifier — BaFin Article 18 rules engine + unit tests | ⏳ Upcoming |
+| **2** | Simulator & Schema — `IncidentEvent` model, Kafka producer | ✅ Complete |
+| **3** | DORA Classifier — BaFin Article 18 rules engine + unit tests | 🔄 In progress |
 | **4** | Streaming Job — PySpark consumer, Iceberg writer, enrichment | ⏳ Upcoming |
 | **5** | dbt & Data Quality — staging/intermediate/mart models, GE suite | ⏳ Upcoming |
 | **6** | Airflow Orchestration — pipeline DAG, dbt DAG | ⏳ Upcoming |
