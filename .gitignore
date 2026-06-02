@@ -20,6 +20,11 @@ env/
 dist/
 build/
 
+# ── Iceberg ───────────────────────────────────────────────────────────────────
+# Local SqlCatalog pointer DB (catalog metadata; table data lives in MinIO).
+# Local state, not source — delete to reset the catalog. Override path: ICEBERG_CATALOG_URI
+dora_catalog.db
+
 # ── dbt ───────────────────────────────────────────────────────────────────────
 target/
 dbt_packages/

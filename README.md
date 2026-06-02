@@ -55,7 +55,7 @@ patterns you would use in a production financial institution.
         │  classified + enriched events
         ▼
   [Apache Iceberg tables]  ←──── stored in ────►  [MinIO / dora-lakehouse]
-  (HadoopCatalog)                                   S3-compatible object store
+  (SqlCatalog → SQLite)                             S3-compatible object store
         │
         ▼
   [dbt Core]
@@ -88,7 +88,7 @@ patterns you would use in a production financial institution.
 | **Stream Processing** | PySpark Structured Streaming | Python-native, same API as batch; simpler than Flink for this use case |
 | **Table Format** | Apache Iceberg | Schema evolution, time-travel, partitioning by severity + date; better local MinIO support than Delta Lake |
 | **Object Storage** | MinIO | Free, S3-compatible, same `boto3` API as real AWS — swap endpoint URL to go to production |
-| **Catalog** | Iceberg HadoopCatalog | No extra catalog service needed; works directly against MinIO |
+| **Catalog** | Iceberg SqlCatalog (SQLite) | No extra catalog service to run — pointer DB is a local SQLite file; table data/metadata live in MinIO (PyIceberg has no HadoopCatalog) |
 | **Transformation** | dbt Core | SQL-based lineage from raw → staging → intermediate → marts; tested models |
 | **Data Quality** | Great Expectations | Validates that no incident arrives with null severity or out-of-range fields |
 | **Orchestration** | Apache Airflow 2.8 | Schedules dbt runs and quality checks; LocalExecutor keeps it single-node |
@@ -213,7 +213,7 @@ dora-incident-pipeline/
 │
 ├── storage/
 │   ├── s3_config.py                # Reusable boto3 MinIO client + bucket/folder bootstrap
-│   └── iceberg_tables.py           # PyIceberg table definitions (HadoopCatalog on MinIO)
+│   └── iceberg_tables.py           # PyIceberg table definitions (SqlCatalog/SQLite, data on MinIO)
 │
 ├── transform/
 │   ├── dbt_project/
@@ -246,10 +246,16 @@ Bucket `dora-lakehouse` is the single storage layer for both raw events and Iceb
 ```
 dora-lakehouse/
 ├── raw/incidents/       # JSON landing zone — raw Kafka events before Iceberg ingest
-├── iceberg/incidents/   # Iceberg data + metadata files for the incidents table
-├── iceberg/vendors/     # Iceberg data + metadata files for the vendor reference table
-└── iceberg/audit_log/   # Iceberg audit trail
+└── iceberg/             # PyIceberg SqlCatalog warehouse root
+    └── dora.db/         # namespace 'dora'
+        ├── incidents_raw/         # data/ + metadata/ for the raw incidents table
+        ├── incidents_classified/  # data/ + metadata/ for the classified table
+        └── audit_log/             # data/ + metadata/ for the audit trail
 ```
+
+> The Iceberg **catalog pointer** is not stored in MinIO — it lives in a local
+> SQLite file (`dora_catalog.db`, gitignored). Only the table data and metadata
+> files live in MinIO.
 
 ---
 
@@ -287,7 +293,8 @@ The rules engine in `processing/dora_classifier.py` evaluates these conditions i
 
 See [decisions.md](decisions.md) for the full dated log. Highlights:
 
-- **Iceberg over Delta Lake** — PyIceberg has better local MinIO / HadoopCatalog support
+- **Iceberg over Delta Lake** — PyIceberg has better local MinIO support
+- **SqlCatalog (SQLite) over HadoopCatalog** — PyIceberg ships no HadoopCatalog; SQLite-backed SqlCatalog keeps the "no extra service" goal (data still in MinIO)
 - **PySpark over Flink** — simpler Python integration; adequate throughput for DORA event scale
 - **PostgreSQL shared** — used by both Airflow (metadata) and dbt (mart target) to avoid a second DB
 - **Superset uses SQLite** — `apache/superset:latest` does not bundle psycopg2; SQLite is sufficient for local dashboard metadata
