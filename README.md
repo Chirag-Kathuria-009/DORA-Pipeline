@@ -105,7 +105,7 @@ patterns you would use in a production financial institution.
 | **0** | Folder structure scaffold | ✅ Complete |
 | **1** | Infrastructure — Docker stack, Kafka topics, MinIO setup | ✅ Complete |
 | **2** | Simulator & Schema — `IncidentEvent` model, Kafka producer | ✅ Complete |
-| **3** | DORA Classifier — BaFin Article 18 rules engine + unit tests | 🔄 In progress |
+| **3** | DORA Classifier — BaFin Article 18 rules engine + unit tests | ✅ Complete |
 | **4** | Streaming Job — PySpark consumer, Iceberg writer, enrichment | ⏳ Upcoming |
 | **5** | dbt & Data Quality — staging/intermediate/mart models, GE suite | ⏳ Upcoming |
 | **6** | Airflow Orchestration — pipeline DAG, dbt DAG | ⏳ Upcoming |
@@ -120,13 +120,16 @@ patterns you would use in a production financial institution.
 - **Python 3.11** — for host-side scripts (simulator, setup scripts)
 - **Git**
 
-Python packages required so far:
+Python packages (Phases 1–3 active):
 
 ```bash
-pip install confluent-kafka boto3
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1        # Windows PowerShell
+# source .venv/bin/activate          # macOS / Linux
+pip install -r requirements.txt
 ```
 
-Additional packages are added per phase (`pydantic`, `pyspark`, `pyiceberg`, `dbt-postgres`, `apache-airflow`).
+Phase 4+ packages (`pyspark`, `pyiceberg`, `dbt-postgres`, `apache-airflow`) are commented stubs in `requirements.txt` — uncomment when starting that phase.
 
 ---
 
