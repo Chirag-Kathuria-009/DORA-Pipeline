@@ -291,7 +291,7 @@ def create_all_tables(
         endpoint:  MinIO endpoint URL. Defaults to MINIO_ENDPOINT env var.
     """
     catalog = _load_catalog(warehouse=warehouse, endpoint=endpoint)
-
+    #test
     try:
         catalog.create_namespace(_NAMESPACE)
         print(f"[CREATED] namespace '{_NAMESPACE}'\n")
