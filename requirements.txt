@@ -37,7 +37,7 @@ pytest>=8.0,<9.0          # test runner used across all phases
 # ------------------------------------------------------------
 # Phase 4 — Streaming Job  (streaming_job.py, enrichment.py, iceberg_tables.py)
 # ------------------------------------------------------------
-# pyspark==3.5.1           # uncomment for Task 4.2 (streaming_job.py)
+pyspark==3.5.1            # Task 4.2 — streaming_job.py (Kafka source + 10s trigger + checkpoint)
 # pyiceberg: [pyarrow] = native C++ S3 FileIO (no aiobotocore/botocore conflict);
 #            [sql-sqlite] = SqlCatalog backend (local SQLite catalog pointer DB)
 pyiceberg[pyarrow,sql-sqlite]>=0.7,<1.0
