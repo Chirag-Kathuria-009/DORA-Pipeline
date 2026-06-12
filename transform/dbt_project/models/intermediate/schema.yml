@@ -1,0 +1,32 @@
+version: 2
+
+models:
+  - name: int_dora_classified
+    description: >
+      Enriched incident grain (one row per incident): stg_incidents joined with the
+      vendor reference dimension, plus the shared BaFin deadline / containment / SLA
+      fields (reporting_period, containment_hours, deadline_timestamp,
+      is_within_deadline, sla_breached, hours_overdue) consumed by all three marts.
+    columns:
+      - name: incident_sk
+        description: "Surrogate key from stg_incidents."
+        data_tests:
+          - not_null
+      - name: incident_id
+        description: "Incident natural key."
+        data_tests:
+          - not_null
+      - name: reporting_period
+        description: "Reporting month as YYYY-MM, derived from incident_timestamp."
+      - name: containment_hours
+        description: "Detection→containment time in hours; NULL if still uncontained."
+      - name: deadline_timestamp
+        description: "BaFin deadline = detection_timestamp + deadline hours; NULL for minor."
+      - name: is_within_deadline
+        description: "True if a reportable incident was contained within its deadline window."
+      - name: sla_breached
+        description: "True if contained late or uncontained past deadline; NULL for non-reportable (minor)."
+      - name: hours_overdue
+        description: "Hours past the deadline when breached; NULL otherwise."
+      - name: dora_designated_critical
+        description: "Vendor's DORA critical-provider flag (false when provider absent from seed)."

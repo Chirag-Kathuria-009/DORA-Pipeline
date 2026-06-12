@@ -1,0 +1,98 @@
+version: 2
+
+models:
+  - name: mart_bafin_report
+    description: >
+      Simulated mandatory BaFin incident-register submission, one row per
+      (reporting month, institution): incident counts by severity, BaFin-reported
+      count, mean containment time, and a deadline-compliance rate + status flag.
+    columns:
+      - name: reporting_period
+        description: "Reporting month as YYYY-MM (from incident_timestamp)."
+      - name: institution_id
+        description: "Reporting financial institution."
+      - name: institution_type
+        description: "Institution category: bank, insurer, payment_provider, asset_manager."
+      - name: incident_count_total
+        description: "Total incidents for the institution in the reporting month."
+      - name: incident_count_critical
+        description: "Critical incidents in the period."
+      - name: incident_count_major
+        description: "Major incidents in the period."
+      - name: incident_count_minor
+        description: "Minor incidents in the period."
+      - name: incidents_reported_to_bafin
+        description: "Incidents requiring BaFin notification (bafin_notification_required = true)."
+      - name: avg_time_to_contain_hours
+        description: "Mean detection→containment time in hours, over contained incidents."
+      - name: compliance_rate_pct
+        description: >
+          Reportable incidents contained within their BaFin deadline / all reportable
+          incidents * 100. NULL when nothing was reportable that month. Always 0–100.
+        data_tests:
+          - assert_between:
+              arguments:
+                min_value: 0
+                max_value: 100
+      - name: compliance_status
+        description: "COMPLIANT (>=95 or nothing reportable) / AT_RISK (80–95) / NON_COMPLIANT (<80)."
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['COMPLIANT', 'AT_RISK', 'NON_COMPLIANT']
+
+  - name: mart_vendor_risk
+    description: >
+      Third-party ICT concentration-risk register (DORA Article 28), one row per
+      ICT provider seen in incidents: recent incident volume, average financial
+      impact, institutional exposure, and a concentration-risk tier.
+    columns:
+      - name: ict_third_party_provider
+        description: "ICT third-party provider name (natural key)."
+        data_tests:
+          - not_null
+          - unique
+      - name: vendor_type
+        description: "Vendor category from the seed (cloud/saas/infrastructure); NULL if provider not in seed."
+      - name: eu_headquartered
+        description: "Whether the vendor is EU-headquartered (from seed); NULL if provider not in seed."
+      - name: dora_designated_critical
+        description: "DORA critical-provider flag (from seed); defaults to false if provider not in seed."
+      - name: incident_count_last_90d
+        description: "Incidents involving this provider in the last 90 days."
+      - name: avg_financial_impact_eur
+        description: "Average financial impact (EUR) across this provider's incidents."
+      - name: institutions_exposed
+        description: "Distinct institutions that suffered an incident involving this provider."
+      - name: concentration_risk_tier
+        description: "HIGH (>=5 institutions or DORA-critical) / MEDIUM (>=2) / LOW."
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['HIGH', 'MEDIUM', 'LOW']
+
+  - name: mart_sla_breach
+    description: >
+      BaFin notification SLA tracking, one row per reportable incident: the deadline
+      timestamp, actual containment time, a breach flag, and hours overdue.
+    columns:
+      - name: incident_id
+        description: "Incident natural key."
+        data_tests:
+          - not_null
+      - name: institution_id
+        description: "Affected institution."
+      - name: dora_severity
+        description: "Severity tier (critical or major; minor has no deadline and is excluded)."
+      - name: detection_timestamp
+        description: "When the incident was detected (tz-aware)."
+      - name: bafin_notification_deadline_hours
+        description: "BaFin deadline in hours (4 critical, 72 major)."
+      - name: deadline_timestamp
+        description: "detection_timestamp + deadline hours."
+      - name: actual_containment_hours
+        description: "Detection→containment hours; NULL if still uncontained."
+      - name: sla_breached
+        description: "True if contained after deadline, or still uncontained past deadline."
+      - name: hours_overdue
+        description: "Hours past the deadline when breached; NULL otherwise."

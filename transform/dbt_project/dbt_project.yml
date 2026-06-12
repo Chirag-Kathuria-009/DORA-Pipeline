@@ -1,13 +1,14 @@
 # dbt_project.yml — DORA ICT Incident Intelligence Pipeline
-# Status: PLACEHOLDER — to be filled in Phase 5
+# Phase 5 — dbt & Data Quality
 
-name: dora_incident_pipeline
+name: dora_pipeline
 version: "1.0.0"
 config-version: 2
 
-profile: dora_incident_pipeline
+profile: dora_pipeline
 
 model-paths: ["models"]
+seed-paths: ["seeds"]
 test-paths: ["tests"]
 analysis-paths: ["analyses"]
 macro-paths: ["macros"]
@@ -17,11 +18,26 @@ clean-targets:
   - "target"
   - "dbt_packages"
 
+# Staging + intermediate are lightweight transforms → views (no storage cost,
+# always fresh). Marts are the queried BaFin/vendor/SLA outputs → tables
+# (materialised once per run for fast Superset/dashboard reads).
 models:
-  dora_incident_pipeline:
+  dora_pipeline:
     staging:
       +materialized: view
     intermediate:
       +materialized: view
     marts:
       +materialized: table
+
+# Reference data loaded with `dbt seed`. Explicit column types so the boolean /
+# integer columns are not inferred as text by the CSV reader.
+seeds:
+  dora_pipeline:
+    ict_vendors:
+      +column_types:
+        vendor_name: varchar(100)
+        vendor_type: varchar(20)
+        eu_headquartered: boolean
+        dora_designated_critical: boolean
+        concentration_risk_score: integer

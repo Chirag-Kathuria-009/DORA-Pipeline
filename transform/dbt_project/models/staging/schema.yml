@@ -1,0 +1,98 @@
+version: 2
+
+sources:
+  - name: dora
+    description: >
+      Raw DORA pipeline tables landed into Postgres from the Iceberg lakehouse by
+      the Iceberg->Postgres sync. dbt-postgres cannot read Iceberg/MinIO directly,
+      so the sync materialises these tables in the Postgres `dora` schema for
+      transformation.
+    schema: dora
+    tables:
+      - name: incidents_classified
+        description: >
+          One row per classified ICT incident, mirroring the Iceberg table
+          dora.incidents_classified (the 15 IncidentEvent fields plus
+          classification_reason).
+
+models:
+  - name: stg_incidents
+    description: >
+      Staging model over dora.incidents_classified: every column type-cast,
+      timestamps made tz-aware, a surrogate key added, and null-key / unclassified
+      rows filtered out.
+    columns:
+      - name: incident_sk
+        description: "Surrogate key — deterministic hash of incident_id (dbt_utils.generate_surrogate_key)."
+        data_tests:
+          - not_null
+      - name: incident_id
+        description: "Natural key — the source incident UUID, as text."
+        data_tests:
+          - not_null
+      - name: incident_timestamp
+        description: "Event time, tz-aware. Renamed from the raw `timestamp` column (a reserved Postgres keyword)."
+        data_tests:
+          - not_null
+      - name: detection_timestamp
+        description: "When the incident was first detected, tz-aware."
+      - name: containment_timestamp
+        description: "When the incident was contained, tz-aware; null if still ongoing."
+      - name: institution_id
+        description: "Identifier of the affected financial institution."
+      - name: institution_type
+        description: "Institution category: bank, insurer, payment_provider, or asset_manager."
+      - name: incident_type
+        description: "Incident category, e.g. system_outage, data_breach, cyber_attack, transaction_failure."
+      - name: affected_systems
+        description: "Internal systems affected by the incident (array, as landed by the sync)."
+      - name: clients_affected_pct
+        description: "Share of clients affected, 0.0–100.0 percent."
+      - name: financial_impact_eur
+        description: "Estimated financial impact of the incident in EUR."
+      - name: ict_third_party_provider
+        description: "ICT third-party vendor involved, if any (null when none). References stg_ict_vendors.vendor_name."
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('stg_ict_vendors')
+                field: vendor_name
+              config:
+                where: "ict_third_party_provider is not null"
+      - name: is_cross_border
+        description: "True if the incident has cross-border (multi-jurisdiction) impact."
+      - name: dora_severity
+        description: "DORA/BaFin severity tier assigned by the streaming classifier."
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['critical', 'major', 'minor']
+      - name: bafin_notification_required
+        description: "Whether BaFin notification is required for this incident."
+      - name: bafin_notification_deadline_hours
+        description: "BaFin notification deadline in hours (4 = critical, 72 = major, null = minor)."
+      - name: classification_reason
+        description: "Human-readable explanation of why the severity tier was assigned."
+
+  - name: stg_ict_vendors
+    description: >
+      Staging model over the ict_vendors seed: vendor names trimmed and an
+      is_hyperscaler flag added. Serves as the vendor dimension referenced by
+      stg_incidents and the downstream mart_vendor_risk model.
+    columns:
+      - name: vendor_name
+        description: "Vendor name, whitespace-trimmed. Natural key of the vendor dimension."
+        data_tests:
+          - not_null
+          - unique
+      - name: vendor_type
+        description: "Vendor category: cloud, saas, or infrastructure."
+      - name: eu_headquartered
+        description: "True if the vendor is headquartered in the EU."
+      - name: dora_designated_critical
+        description: "True if designated a critical ICT third-party provider under DORA."
+      - name: concentration_risk_score
+        description: "Concentration-risk score from 1 (low) to 5 (high)."
+      - name: is_hyperscaler
+        description: "True for the global public-cloud hyperscalers (AWS, Azure, GCP)."

@@ -127,7 +127,11 @@ services:
     image: postgres:15
     container_name: dora-postgres
     ports:
-      - "5432:5432"
+      # Host port 5433 (NOT 5432) to avoid clashing with a PostgreSQL the developer
+      # runs natively on 5432. The container-internal port is still 5432, so every
+      # in-network service (Airflow via postgres:5432) is unaffected. Host-side
+      # clients (dbt) must use localhost:5433. See decisions.md (2026-06-12 | infra).
+      - "5433:5432"
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}

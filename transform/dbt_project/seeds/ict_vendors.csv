@@ -1,0 +1,16 @@
+vendor_name,vendor_type,eu_headquartered,dora_designated_critical,concentration_risk_score
+AWS,cloud,false,true,5
+Azure,cloud,false,true,5
+GCP,cloud,false,true,4
+SAP,saas,true,true,4
+Salesforce,saas,false,false,3
+Oracle,infrastructure,false,true,4
+IBM,infrastructure,false,true,3
+Temenos,saas,false,true,4
+Finastra,saas,false,true,3
+Mambu,saas,true,false,2
+Thought Machine,saas,false,false,2
+SWIFT,infrastructure,true,true,5
+SIX Group,infrastructure,false,true,3
+Deutsche Boerse,infrastructure,true,true,4
+Broadridge,saas,false,false,2

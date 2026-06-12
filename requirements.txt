@@ -41,15 +41,22 @@ pyspark==3.5.1            # Task 4.2 — streaming_job.py (Kafka source + 10s tr
 # pyiceberg: [pyarrow] = native C++ S3 FileIO (no aiobotocore/botocore conflict);
 #            [sql-sqlite] = SqlCatalog backend (local SQLite catalog pointer DB)
 pyiceberg[pyarrow,sql-sqlite]>=0.7,<1.0
+# tzdata: Windows has no system IANA tz database, so PyArrow/zoneinfo cannot resolve
+#         "UTC" when PyIceberg writes min/max stats for TimestamptzType columns.
+#         Without it every Iceberg append of a timestamp column raises
+#         ZoneInfoNotFoundError: 'No time zone found with key UTC'. No-op on Linux.
+tzdata>=2024.1
 
 
 # ------------------------------------------------------------
 # Phase 5 — dbt & Data Quality  (dbt_project/, great_expectations/)
+# NOTE: keep the <2.0 pin on dbt-core — without it, dbt-postgres's
+#       ">=1.8.0rc1" dependency lets pip pull a 2.0.0 alpha pre-release.
+# psycopg2-binary is installed transitively by dbt-postgres.
 # ------------------------------------------------------------
-# dbt-core>=1.8,<2.0
-# dbt-postgres>=1.8,<2.0
+dbt-core>=1.8,<2.0
+dbt-postgres>=1.8,<2.0
 # great-expectations>=0.18,<1.0
-# psycopg2-binary>=2.9,<3.0
 
 
 # ------------------------------------------------------------

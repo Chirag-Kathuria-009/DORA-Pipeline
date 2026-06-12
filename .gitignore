@@ -29,6 +29,12 @@ dora_catalog.db
 target/
 dbt_packages/
 logs/
+# dbt per-user anonymous id — machine-specific, not a secret but not for the repo
+.user.yml
+
+# ── Test / run artifacts ──────────────────────────────────────────────────────
+# e2e_smoke_test.py subprocess logs (streaming_job.log, incident_generator.log)
+tests/_smoke_logs/
 
 # ── Jupyter ───────────────────────────────────────────────────────────────────
 .ipynb_checkpoints/

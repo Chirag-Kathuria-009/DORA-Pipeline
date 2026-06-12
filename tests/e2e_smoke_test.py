@@ -254,6 +254,13 @@ def run_smoke_test() -> int:
     Returns:
         0 if every assertion passed, 1 otherwise.
     """
+    # Windows consoles default to cp1252, which cannot encode the summary's arrow
+    # (→) or status emoji (✅/❌). Force UTF-8 so reporting never crashes mid-run.
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass  # non-standard stdout (e.g. already wrapped) — nothing to reconfigure
+
     _LOG_DIR.mkdir(parents=True, exist_ok=True)
     stream_log = _LOG_DIR / "streaming_job.log"
     gen_log    = _LOG_DIR / "incident_generator.log"
