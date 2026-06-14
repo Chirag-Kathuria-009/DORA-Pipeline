@@ -1,9 +1,68 @@
 {
-  "expectation_suite_name": "incidents_suite",
+  "expectation_suite_name": "dora_incidents_quality",
   "data_asset_type": null,
-  "expectations": [],
+  "ge_cloud_id": null,
+  "expectations": [
+    { "expectation_type": "expect_column_to_exist", "kwargs": { "column": "incident_id" }, "meta": {} },
+    { "expectation_type": "expect_column_to_exist", "kwargs": { "column": "timestamp" }, "meta": {} },
+    { "expectation_type": "expect_column_to_exist", "kwargs": { "column": "institution_id" }, "meta": {} },
+    { "expectation_type": "expect_column_to_exist", "kwargs": { "column": "institution_type" }, "meta": {} },
+    { "expectation_type": "expect_column_to_exist", "kwargs": { "column": "incident_type" }, "meta": {} },
+    { "expectation_type": "expect_column_to_exist", "kwargs": { "column": "affected_systems" }, "meta": {} },
+    { "expectation_type": "expect_column_to_exist", "kwargs": { "column": "clients_affected_pct" }, "meta": {} },
+    { "expectation_type": "expect_column_to_exist", "kwargs": { "column": "financial_impact_eur" }, "meta": {} },
+    { "expectation_type": "expect_column_to_exist", "kwargs": { "column": "detection_timestamp" }, "meta": {} },
+    { "expectation_type": "expect_column_to_exist", "kwargs": { "column": "containment_timestamp" }, "meta": {} },
+    { "expectation_type": "expect_column_to_exist", "kwargs": { "column": "ict_third_party_provider" }, "meta": {} },
+    { "expectation_type": "expect_column_to_exist", "kwargs": { "column": "is_cross_border" }, "meta": {} },
+    { "expectation_type": "expect_column_to_exist", "kwargs": { "column": "dora_severity" }, "meta": {} },
+    { "expectation_type": "expect_column_to_exist", "kwargs": { "column": "bafin_notification_required" }, "meta": {} },
+    { "expectation_type": "expect_column_to_exist", "kwargs": { "column": "bafin_notification_deadline_hours" }, "meta": {} },
+
+    { "expectation_type": "expect_column_values_to_not_be_null", "kwargs": { "column": "incident_id" }, "meta": {} },
+    { "expectation_type": "expect_column_values_to_not_be_null", "kwargs": { "column": "timestamp" }, "meta": {} },
+    { "expectation_type": "expect_column_values_to_not_be_null", "kwargs": { "column": "dora_severity" }, "meta": {} },
+    { "expectation_type": "expect_column_values_to_not_be_null", "kwargs": { "column": "institution_id" }, "meta": {} },
+
+    {
+      "expectation_type": "expect_column_values_to_be_in_set",
+      "kwargs": { "column": "dora_severity", "value_set": ["critical", "major", "minor"] },
+      "meta": {}
+    },
+
+    {
+      "expectation_type": "expect_column_values_to_be_between",
+      "kwargs": { "column": "clients_affected_pct", "min_value": 0.0, "max_value": 100.0 },
+      "meta": {}
+    },
+
+    {
+      "expectation_type": "expect_column_values_to_be_between",
+      "kwargs": { "column": "financial_impact_eur", "min_value": 0, "max_value": null },
+      "meta": { "notes": "financial_impact_eur must be >= 0 (no upper bound)." }
+    },
+
+    {
+      "expectation_type": "expect_column_values_to_be_in_set",
+      "kwargs": {
+        "column": "bafin_notification_required",
+        "value_set": [true],
+        "row_condition": "dora_severity==\"critical\"",
+        "condition_parser": "pandas"
+      },
+      "meta": {
+        "notes": "Conditional rule: every CRITICAL incident must have bafin_notification_required = True. Implemented as a conditional expect_column_values_to_be_in_set (row_condition on critical) because expect_column_pair_values_to_be_equal only compares two columns for equality and cannot express a conditional."
+      }
+    },
+
+    {
+      "expectation_type": "expect_table_row_count_to_be_between",
+      "kwargs": { "min_value": 1 },
+      "meta": { "notes": "Table is never empty." }
+    }
+  ],
   "meta": {
-    "great_expectations_version": "0.18.x",
-    "notes": "PLACEHOLDER — expectations added in Phase 5. Will validate IncidentEvent fields: non-null incident_id, severity in [CRITICAL, MAJOR, MINOR], clients_affected_pct in [0, 100]."
+    "great_expectations_version": "0.18.22",
+    "notes": "DORA incidents_classified data-quality suite (Phase 5 Task 4). Column names follow the IncidentEvent schema; classification_reason (16th column of incidents_classified) is intentionally omitted per the 'IncidentEvent fields only' constraint."
   }
 }
