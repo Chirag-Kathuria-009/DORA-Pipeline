@@ -19,9 +19,10 @@ cleaned as (
         cast(dora_designated_critical as boolean)  as dora_designated_critical,
         cast(concentration_risk_score as integer)  as concentration_risk_score,
 
-        -- Hyperscalers: the three global public-cloud providers.
+        -- Hyperscalers: the global public-cloud providers. Both seed spellings of
+        -- Google's cloud ('GCP' and 'Google Cloud') are included.
         case
-            when trim(vendor_name) in ('AWS', 'Azure', 'GCP') then true
+            when trim(vendor_name) in ('AWS', 'Azure', 'GCP', 'Google Cloud') then true
             else false
         end                                        as is_hyperscaler
 

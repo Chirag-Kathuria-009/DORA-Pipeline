@@ -14,3 +14,5 @@ SWIFT,infrastructure,true,true,5
 SIX Group,infrastructure,false,true,3
 Deutsche Boerse,infrastructure,true,true,4
 Broadridge,saas,false,false,2
+Google Cloud,cloud,false,true,4
+Murex,saas,true,false,3
