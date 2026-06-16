@@ -314,7 +314,7 @@ pytest tests/test_classifier.py -v
 dbt test --select staging
 dbt run --select marts
 
-# Phase 6 gate — Airflow DAG structure tests
+# Phase 6 gate — Airflow DAG structure tests changes
 pytest tests/test_dag.py -v
 
 # Full suite
