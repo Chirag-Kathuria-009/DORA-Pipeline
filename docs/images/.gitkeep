@@ -1,0 +1,5 @@
+# Place README screenshots here (see the Screenshots section in README.md):
+#   superset_dashboard.png   — Superset DORA compliance dashboard (4 panels)
+#   airflow_dag.png          — Airflow 7-task pipeline DAG (graph view, green run)
+#   kafka_ui.png             — Kafka UI topics / messages
+#   minio_lakehouse.png      — MinIO dora-lakehouse bucket (Iceberg dora.db/)

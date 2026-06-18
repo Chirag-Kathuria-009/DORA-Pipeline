@@ -118,6 +118,39 @@ flowchart TD
 
 ---
 
+## Screenshots
+
+> Save each image under `docs/images/` with the exact filename shown below and the
+> links will render automatically (locally and on GitHub).
+
+### DORA Regulatory Compliance Dashboard (Superset)
+
+The four compliance panels — BaFin compliance rate by institution, ICT vendor
+concentration-risk treemap, SLA-breach timeline, and incident volume by severity.
+
+![DORA Regulatory Compliance Dashboard](docs/images/superset_dashboard.png)
+
+### Pipeline Orchestration (Airflow)
+
+The 7-task DAG: Kafka health → Iceberg→Postgres sync → Great Expectations →
+dbt staging → dbt marts → compliance alerts → run metadata.
+
+![Airflow pipeline DAG](docs/images/airflow_dag.png)
+
+### Real-Time Incident Stream (Kafka UI)
+
+The severity-tiered topics carrying live incident events.
+
+![Kafka UI topics](docs/images/kafka_ui.png)
+
+### Iceberg Lakehouse (MinIO)
+
+The `dora-lakehouse` bucket holding the Iceberg table data and metadata.
+
+![MinIO Iceberg lakehouse](docs/images/minio_lakehouse.png)
+
+---
+
 ## Tech Stack
 
 | Layer | Technology | Why this choice |
@@ -293,10 +326,13 @@ Bucket `dora-lakehouse` is the single storage layer for both raw events and Iceb
 dora-lakehouse/
 ├── raw/incidents/       # JSON landing zone — raw Kafka events before Iceberg ingest
 └── iceberg/             # PyIceberg SqlCatalog warehouse root
-    └── dora.db/         # namespace 'dora'
+    └── dora/            # namespace 'dora'
         ├── incidents_raw/         # data/ + metadata/ for the raw incidents table
-        ├── incidents_classified/  # data/ + metadata/ for the classified table
-        └── audit_log/             # data/ + metadata/ for the audit trail
+        ├── incidents_classified/  # partitioned by day → severity (see below)
+        │   ├── data/timestamp_day=YYYY-MM-DD/dora_severity=critical/*.parquet
+        │   ├── data/timestamp_day=YYYY-MM-DD/dora_severity=major/*.parquet
+        │   └── data/timestamp_day=YYYY-MM-DD/dora_severity=minor/*.parquet
+        └── audit_log/             # data/ (partitioned by processed_at_day) + metadata/
 ```
 
 > The Iceberg **catalog pointer** is not stored in MinIO — it lives in a local
