@@ -1,0 +1,29 @@
+# .dockerignore — keep the pipeline-runner build context small and avoid baking
+# stale or secret files into the image.
+
+# Python / virtualenvs
+.venv
+.venv-airflow
+**/__pycache__
+*.pyc
+*.pyo
+
+# Git
+.git
+.gitignore
+
+# dbt build artifacts + packages (dbt_packages is rebuilt in-image by `dbt deps`)
+transform/dbt_project/target
+transform/dbt_project/dbt_packages
+transform/dbt_project/logs
+
+# Iceberg catalog pointer — bind-mounted live at runtime; baked copy would go stale
+dora_catalog.db
+
+# Secrets / local env
+.env
+
+# Logs / misc
+*.log
+.pytest_cache
+.DS_Store

@@ -34,6 +34,45 @@ patterns you would use in a production financial institution.
 
 ### Data Flow
 
+```mermaid
+flowchart TD
+  GEN["incident_generator.py (host)"] -->|JSON| K1[("Kafka: critical/major/minor")]
+  K1 --> SJ["streaming_job.py PySpark (host)"]
+  SJ --> CLS["DORAClassifier.classify()"]
+  SJ -->|foreachBatch| IC[("Iceberg incidents_classified")]
+  SJ --> AL[("Iceberg audit_log")]
+  SJ --> KE[("Kafka enriched")]
+  IC -. catalog pointer .-> CAT[("dora_catalog.db SQLite host")]
+  IC -. data/metadata .-> MIN[("MinIO dora-lakehouse")]
+
+  subgraph AF["Airflow DAG every 15m — DockerOperator tasks"]
+    direction TB
+    T1["1 check_kafka_health"] --> T2["2 sync_iceberg_to_postgres"]
+    T2 --> T3["3 run_great_expectations"]
+    T3 --> T4["4 run_dbt_staging"]
+    T4 --> T5["5 run_dbt_marts (int -> marts)"]
+    T5 --> T6["6 check_compliance_alerts"]
+    T6 --> T7["7 update_pipeline_metadata"]
+  end
+
+  IC --> T2
+  CAT --> T2
+  T2 --> PG[("Postgres dora.incidents_classified")]
+  PG --> T3
+  PG --> T4
+  SEED[("seed ict_vendors")] --> T4
+  T4 --> STG[("stg_* views")]
+  STG --> T5
+  T5 --> MARTS[("marts: bafin / vendor / sla")]
+  MARTS --> T6
+  T7 --> RUNS[("public.pipeline_runs")]
+  MARTS --> SUP["Superset dashboards"]
+```
+
+> The diagram above renders on GitHub and in VS Code's Markdown preview. See
+> **[ARCHITECTURE.md](ARCHITECTURE.md)** for the same diagram plus a stage-by-stage walkthrough.
+> An ASCII fallback follows for plain-text viewers.
+
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                        DORA Pipeline — Data Flow                        │
@@ -106,11 +145,11 @@ patterns you would use in a production financial institution.
 | **1** | Infrastructure — Docker stack, Kafka topics, MinIO setup | ✅ Complete |
 | **2** | Simulator & Schema — `IncidentEvent` model, Kafka producer | ✅ Complete |
 | **3** | DORA Classifier — BaFin Article 18 rules engine + unit tests | ✅ Complete |
-| **4** | Streaming Job — PySpark consumer, Iceberg writer, enrichment | ⏳ Upcoming |
-| **5** | dbt & Data Quality — staging/intermediate/mart models, GE suite | ⏳ Upcoming |
-| **6** | Airflow Orchestration — pipeline DAG, dbt DAG | ⏳ Upcoming |
-| **7** | Dashboard — Superset compliance dashboards | ⏳ Upcoming |
-| **8** | Packaging — requirements.txt, CI, final docs | ⏳ Upcoming |
+| **4** | Streaming Job — PySpark consumer, Iceberg writer, enrichment | ✅ Complete |
+| **5** | dbt & Data Quality — staging/intermediate/mart models, GE suite | ✅ Complete |
+| **6** | Airflow Orchestration — 7-task pipeline DAG (DockerOperator) | ✅ Complete |
+| **7** | Dashboard — Superset compliance dashboard | ✅ Complete |
+| **8** | Packaging — docs, architecture diagram | ✅ Complete |
 
 ---
 
@@ -224,17 +263,24 @@ dora-incident-pipeline/
 │       └── expectations/           # Data quality suite — validates incident field constraints
 │
 ├── orchestration/
+│   ├── pipeline_steps.py           # CLI for the 4 Python DAG steps (run inside the runner container)
 │   └── dags/
-│       ├── dora_pipeline_dag.py    # Main 7-task Airflow DAG
-│       └── dbt_run_dag.py          # dbt transformation DAG (triggered after streaming lands)
+│       └── dora_pipeline_dag.py    # Main 7-task Airflow DAG (DockerOperator — Option B)
 │
 ├── dashboard/
-│   └── superset_config.py          # Superset Flask runtime config + Phase 7 dashboard bootstrap
+│   └── superset_config.py          # Superset Flask runtime config + REST-API dashboard bootstrap
+│
+├── Dockerfile.runner               # dora/pipeline-runner image — runs every DAG task's heavy deps
+├── Dockerfile.superset             # apache/superset + psycopg2-binary (reads the PG marts)
+├── requirements.txt                # Pipeline deps
+├── requirements-airflow.txt        # Airflow-only deps for the DAG test venv (avoids the SQLAlchemy clash)
 │
 └── tests/
-    ├── test_classifier.py          # 8 unit tests covering every DORA classification boundary
-    ├── test_generator.py           # Incident generator and schema validation tests
-    └── test_dbt_models.py          # dbt model integration tests against test PostgreSQL schema
+    ├── test_classifier.py          # Unit tests covering every DORA classification boundary
+    ├── test_dag.py                 # Static Airflow DAG validation (7 tasks, deps, schedule, retries)
+    ├── e2e_smoke_test.py           # Standalone ingestion → streaming → Iceberg smoke test
+    ├── test_generator.py           # Incident generator and schema validation tests (stub)
+    └── test_dbt_models.py          # dbt model integration tests (stub)
 ```
 
 ---
@@ -291,13 +337,14 @@ The rules engine in `processing/dora_classifier.py` evaluates these conditions i
 
 ## Key Design Decisions
 
-See [decisions.md](decisions.md) for the full dated log. Highlights:
+See **[ARCHITECTURE.md](ARCHITECTURE.md)** for the full data flow. Key decisions:
 
 - **Iceberg over Delta Lake** — PyIceberg has better local MinIO support
 - **SqlCatalog (SQLite) over HadoopCatalog** — PyIceberg ships no HadoopCatalog; SQLite-backed SqlCatalog keeps the "no extra service" goal (data still in MinIO)
 - **PySpark over Flink** — simpler Python integration; adequate throughput for DORA event scale
 - **PostgreSQL shared** — used by both Airflow (metadata) and dbt (mart target) to avoid a second DB
-- **Superset uses SQLite** — `apache/superset:latest` does not bundle psycopg2; SQLite is sufficient for local dashboard metadata
+- **Airflow runs each task in a container (DockerOperator)** — Airflow 2.8 pins SQLAlchemy `<2.0` while PyIceberg needs `>=2.0`, so the pipeline deps run in a separate `dora/pipeline-runner` image (also maps 1:1 to a prod KubernetesPodOperator)
+- **Superset metadata uses SQLite**, but the image is extended with `psycopg2-binary` (`Dockerfile.superset`) so it can read the PostgreSQL marts as a data source
 - **100% Docker Compose** — zero cloud cost, fully reproducible on any reviewer's machine
 
 ---

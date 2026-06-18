@@ -1,0 +1,24 @@
+# ============================================================
+# requirements-airflow.txt — Airflow-only dependencies (Phase 6, Option B)
+#
+# These are kept SEPARATE from requirements.txt on purpose: apache-airflow 2.8
+# pins SQLAlchemy <2.0, which conflicts with pyiceberg (needs >=2.0) in the main
+# .venv. Under Option B the DAG runs heavy work in a separate runner container,
+# so Airflow never needs the pipeline deps — and they must not share an env.
+#
+# Use a DEDICATED virtualenv to run the Airflow DAG tests (Task 6.2):
+#
+#   python -m venv .venv-airflow
+#   .\.venv-airflow\Scripts\Activate.ps1          # Windows PowerShell
+#   # source .venv-airflow/bin/activate            # macOS / Linux
+#   pip install -r requirements-airflow.txt \
+#     --constraint "https://raw.githubusercontent.com/apache/airflow/constraints-2.8.0/constraints-3.11.txt"
+#   pytest tests/test_dag.py -v
+#
+# The new DockerOperator DAG imports only airflow + the docker provider (no pyiceberg),
+# so it loads cleanly in this env with zero SQLAlchemy conflict.
+# ============================================================
+
+apache-airflow==2.8.0
+apache-airflow-providers-docker==3.9.1
+pytest>=8.0,<9.0

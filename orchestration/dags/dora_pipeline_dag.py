@@ -1,6 +1,7 @@
-"""Main Airflow DAG for the DORA ICT Incident Intelligence Pipeline.
+"""Main Airflow DAG for the DORA ICT Incident Intelligence Pipeline (Option B).
 
-TaskFlow (@task) DAG that runs the full compliance pipeline every 15 minutes:
+TaskFlow @dag that runs the full compliance pipeline every 15 minutes. Each task is a
+DockerOperator that runs a command inside the `dora/pipeline-runner` image:
 
     check_kafka_health
       -> sync_iceberg_to_postgres
@@ -10,76 +11,92 @@ TaskFlow (@task) DAG that runs the full compliance pipeline every 15 minutes:
       -> check_compliance_alerts
       -> update_pipeline_metadata
 
-Design notes:
-  * Heavy dependencies (pyiceberg, pandas, sqlalchemy, dbt, great_expectations) are
-    imported INSIDE each task, not at module level, so the DAG file parses with only
-    Airflow installed (required for scheduler parsing and tests/test_dag.py).
-  * The task logic reuses the rest of the repo, so the project root must be importable
-    at run time. Set DORA_PROJECT_ROOT in the Airflow environment (and mount the repo +
-    install the pipeline deps into the Airflow image); it defaults to the path relative
-    to this file for local/venv runs.
-  * sync_iceberg_to_postgres is the PERMANENT replacement for the throwaway one-off load
-    used during Phase 5 testing. It is incremental on the `timestamp` column —
-    incidents_classified has no `processed_at` column (that lives in audit_log, per
-    decisions.md 2026-06-05), so `timestamp` is the available watermark.
+Why DockerOperator (decisions.md, Phase 6 — Option B): the heavy pipeline tools
+(pyiceberg/pandas/sqlalchemy/dbt/great-expectations/confluent-kafka) cannot live in
+Airflow 2.8's own Python env — Airflow pins SQLAlchemy <2.0 while PyIceberg's SqlCatalog
+needs >=2.0. So every task runs in a separate runner container that carries those deps,
+which also maps 1:1 to a prod KubernetesPodOperator. This DAG file therefore imports only
+Airflow + the Docker provider — no pipeline deps — so the scheduler parses it cleanly and
+tests/test_dag.py (Task 6.2) can import it in an airflow-only venv.
+
+The pure-Python step logic lives in orchestration/pipeline_steps.py (a CLI run inside the
+container); dbt and Great Expectations are invoked via their own CLIs. The runner container
+talks to the in-network service endpoints (postgres:5432, kafka:29092, minio:9000) and
+bind-mounts the host repo so it shares the local SQLite Iceberg catalog (dora_catalog.db)
+with the host streaming job. Set DORA_HOST_PROJECT_ROOT (host absolute path to the repo)
+in the Airflow environment — docker.sock bind-mount sources resolve on the host.
 """
 
 from __future__ import annotations
 
 import logging
 import os
-import pathlib
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
-from airflow.decorators import dag, task
-from airflow.exceptions import AirflowSkipException
+from airflow.decorators import dag
+from airflow.providers.docker.operators.docker import DockerOperator
+from docker.types import Mount
 
 logger = logging.getLogger("airflow.task")
 
-# ── Paths / connection helpers (stdlib only at module scope) ─────────────────────
+# ── Runner-container configuration ────────────────────────────────────────────────
 
-def _project_root() -> pathlib.Path:
-    """Return the repo root, from DORA_PROJECT_ROOT or relative to this DAG file."""
-    env = os.environ.get("DORA_PROJECT_ROOT")
-    if env:
-        return pathlib.Path(env)
-    return pathlib.Path(__file__).resolve().parents[2]
+_RUNNER_IMAGE = "dora/pipeline-runner:latest"
+_DORA_NET = "dora-net"
+# Host absolute path to the repo, bind-mounted into each task container. docker.sock
+# mount sources resolve on the HOST, not inside the scheduler container. Falls back to
+# /opt/dora so the DAG still *imports* (test_dag.py) when the var is unset.
+_HOST_PROJECT_ROOT = os.environ.get("DORA_HOST_PROJECT_ROOT", "/opt/dora")
+_SKIP_EXIT_CODE = 99  # matches orchestration/pipeline_steps.SKIP_EXIT_CODE
+
+# Pipeline env handed to every runner container: in-network endpoints + creds. Creds fall
+# back to the local .env defaults; the catalog URI points at the bind-mounted repo so the
+# runner shares dora_catalog.db with host processes.
+_RUNNER_ENV = {
+    "DORA_PROJECT_ROOT": "/opt/dora",
+    "PYTHONPATH": "/opt/dora",
+    "POSTGRES_HOST": "postgres",
+    "POSTGRES_PORT": "5432",
+    "POSTGRES_USER": os.environ.get("POSTGRES_USER", "dora"),
+    "POSTGRES_PASSWORD": os.environ.get("POSTGRES_PASSWORD", "dora"),
+    "POSTGRES_DB": os.environ.get("POSTGRES_DB", "dora"),
+    "KAFKA_BROKER": "kafka:29092",
+    "MINIO_ENDPOINT": "http://minio:9000",
+    "MINIO_ACCESS_KEY": os.environ.get("MINIO_ACCESS_KEY", "minioadmin"),
+    "MINIO_SECRET_KEY": os.environ.get("MINIO_SECRET_KEY", "minioadmin"),
+    "ICEBERG_CATALOG_URI": "sqlite:////opt/dora/dora_catalog.db",
+}
 
 
-def _dbt_project_dir() -> pathlib.Path:
-    """Return the dbt project directory (transform/dbt_project)."""
-    return _project_root() / "transform" / "dbt_project"
+def _runner_task(task_id: str, command, *, skip_on_exit_code: int | None = None) -> DockerOperator:
+    """Build a DockerOperator that runs a command in the dora/pipeline-runner image.
 
-
-def _pg_engine():
-    """Create a SQLAlchemy engine for the DORA Postgres (host-side port 5433 default)."""
-    from sqlalchemy import create_engine
-
-    return create_engine(
-        "postgresql+psycopg2://{u}:{p}@{h}:{port}/{db}".format(
-            u=os.environ.get("POSTGRES_USER", "dora"),
-            p=os.environ.get("POSTGRES_PASSWORD", "dora"),
-            h=os.environ.get("POSTGRES_HOST", "localhost"),
-            port=os.environ.get("POSTGRES_PORT", "5433"),
-            db=os.environ.get("POSTGRES_DB", "dora"),
-        )
-    )
-
-
-def _run_dbt(select: list[str]) -> None:
-    """Run `dbt run --select <models>` against the project; raise on non-zero exit.
+    Centralises the shared runner config (image, network, repo bind-mount, env) so the
+    seven tasks differ only by command. mount_tmp_dir=False avoids the Windows host-path
+    issue DockerOperator hits when mounting its scratch dir over docker.sock.
 
     Args:
-        select: dbt model selectors to run.
-    """
-    import subprocess
+        task_id: Airflow task id.
+        command: Command (list or templated string) to run inside the container.
+        skip_on_exit_code: Container exit code that marks the task SKIPPED (else None).
 
-    proj = str(_dbt_project_dir())
-    cmd = ["dbt", "run", "--select", *select, "--project-dir", proj, "--profiles-dir", proj]
-    logger.info("Running: %s", " ".join(cmd))
-    result = subprocess.run(cmd)
-    if result.returncode != 0:
-        raise RuntimeError(f"dbt run --select {' '.join(select)} failed (exit {result.returncode})")
+    Returns:
+        A configured DockerOperator instance.
+    """
+    return DockerOperator(
+        task_id=task_id,
+        image=_RUNNER_IMAGE,
+        command=command,
+        api_version="auto",
+        docker_url="unix://var/run/docker.sock",
+        network_mode=_DORA_NET,
+        mounts=[Mount(source=_HOST_PROJECT_ROOT, target="/opt/dora", type="bind")],
+        mount_tmp_dir=False,
+        working_dir="/opt/dora",
+        environment=_RUNNER_ENV,
+        auto_remove="success",
+        skip_on_exit_code=skip_on_exit_code,
+    )
 
 
 # ── SLA miss callback ────────────────────────────────────────────────────────────
@@ -121,175 +138,57 @@ default_args = {
     doc_md=__doc__,
 )
 def dora_incident_pipeline():
-    """Define the DORA incident pipeline DAG and its task dependencies."""
+    """Define the DORA incident pipeline DAG and its DockerOperator task chain."""
 
-    @task
-    def check_kafka_health() -> bool:
-        """Ping Kafka; skip the run (AirflowSkipException) if the broker is unreachable.
+    # Commands are LISTS (argv) so DockerOperator passes them straight through without
+    # shell-splitting; Jinja templates are rendered per-element (no quoting needed).
+    _STEPS = ["python", "-m", "orchestration.pipeline_steps"]
+    _DBT = ["dbt", "run", "--project-dir", "transform/dbt_project",
+            "--profiles-dir", "transform/dbt_project", "--select"]
 
-        Returns:
-            True when the broker responds with at least one broker in its metadata.
-        """
-        from confluent_kafka.admin import AdminClient
-
-        broker = os.environ.get("KAFKA_BROKER", "localhost:9092")
-        try:
-            metadata = AdminClient({"bootstrap.servers": broker}).list_topics(timeout=10)
-        except Exception as exc:  # broker down / unreachable
-            raise AirflowSkipException(f"Kafka not reachable at {broker}: {exc}")
-        if not metadata.brokers:
-            raise AirflowSkipException(f"Kafka reachable but reports no brokers at {broker}")
-        logger.info("Kafka healthy at %s (%d broker(s))", broker, len(metadata.brokers))
-        return True
-
-    @task
-    def sync_iceberg_to_postgres() -> int:
-        """Copy new Iceberg incidents_classified rows into Postgres dora.incidents_classified.
-
-        Incremental on the `timestamp` column: on the first run the target table is created
-        (replace); subsequently only rows newer than the current max(timestamp) are appended.
-        The list column affected_systems is serialised to JSON text for Postgres.
-
-        Returns:
-            The number of rows loaded this run (0 if already up to date).
-        """
-        import json
-        import sys
-
-        import pandas as pd
-        from sqlalchemy import text
-
-        sys.path.insert(0, str(_project_root()))  # make `storage` importable at run time
-        from storage.iceberg_tables import _load_catalog
-
-        schema, table = "dora", "incidents_classified"
-        engine = _pg_engine()
-
-        with engine.begin() as conn:
-            conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema}"'))
-            exists = conn.execute(
-                text("SELECT to_regclass(:t)"), {"t": f"{schema}.{table}"}
-            ).scalar()
-            watermark = None
-            if exists:
-                watermark = conn.execute(
-                    text(f'SELECT max("timestamp") FROM "{schema}"."{table}"')
-                ).scalar()
-
-        df = _load_catalog().load_table(f"{schema}.{table}").scan().to_pandas()
-        if watermark is not None:
-            df = df[df["timestamp"] > watermark]
-
-        if df.empty:
-            logger.info("sync: no new rows since %s", watermark)
-            return 0
-
-        if "affected_systems" in df.columns:
-            df["affected_systems"] = df["affected_systems"].apply(
-                lambda v: json.dumps(list(v)) if v is not None else None
-            )
-
-        df.to_sql(table, engine, schema=schema,
-                  if_exists="append" if exists else "replace", index=False)
-        logger.info("sync: loaded %d new rows into %s.%s", len(df), schema, table)
-        return len(df)
-
-    @task
-    def run_great_expectations() -> None:
-        """Run the Great Expectations suite; fail the task (and DAG) if any check fails."""
-        import subprocess
-        import sys
-
-        result = subprocess.run(
-            [sys.executable, "-m", "transform.great_expectations.run_validation"],
-            cwd=str(_project_root()),
-        )
-        if result.returncode != 0:
-            raise RuntimeError("Great Expectations validation failed — see task logs.")
-
-    @task
-    def run_dbt_staging() -> None:
-        """dbt run for the staging models (stg_incidents, stg_ict_vendors)."""
-        _run_dbt(["stg_incidents", "stg_ict_vendors"])
-
-    @task
-    def run_dbt_marts() -> None:
-        """dbt run for the mart models (mart_bafin_report, mart_vendor_risk, mart_sla_breach)."""
-        _run_dbt(["mart_bafin_report", "mart_vendor_risk", "mart_sla_breach"])
-
-    @task
-    def check_compliance_alerts() -> int:
-        """Log a warning for every institution flagged NON_COMPLIANT in mart_bafin_report.
-
-        Returns:
-            The number of NON_COMPLIANT (reporting_period, institution) rows found.
-        """
-        from sqlalchemy import text
-
-        with _pg_engine().connect() as conn:
-            rows = conn.execute(
-                text(
-                    "SELECT reporting_period, institution_id, compliance_rate_pct "
-                    "FROM public.mart_bafin_report WHERE compliance_status = 'NON_COMPLIANT'"
-                )
-            ).fetchall()
-
-        for r in rows:
-            logger.warning(
-                "[COMPLIANCE ALERT] %s — institution %s is NON_COMPLIANT (compliance_rate_pct=%s)",
-                r.reporting_period, r.institution_id, r.compliance_rate_pct,
-            )
-        if not rows:
-            logger.info("Compliance check: no NON_COMPLIANT institutions this run.")
-        return len(rows)
-
-    @task
-    def update_pipeline_metadata() -> None:
-        """Write run_id, record_count, and runtime_seconds to the public.pipeline_runs log table."""
-        from airflow.operators.python import get_current_context
-        from sqlalchemy import text
-
-        ctx = get_current_context()
-        dag_run = ctx["dag_run"]
-        run_id = dag_run.run_id
-        started = dag_run.start_date
-        runtime_seconds = (
-            (datetime.now(timezone.utc) - started).total_seconds() if started else None
-        )
-
-        engine = _pg_engine()
-        with engine.begin() as conn:
-            conn.execute(
-                text(
-                    "CREATE TABLE IF NOT EXISTS public.pipeline_runs ("
-                    "run_id text, record_count bigint, runtime_seconds double precision, "
-                    "logged_at timestamptz DEFAULT now())"
-                )
-            )
-            record_count = conn.execute(
-                text('SELECT count(*) FROM "dora"."incidents_classified"')
-            ).scalar()
-            conn.execute(
-                text(
-                    "INSERT INTO public.pipeline_runs (run_id, record_count, runtime_seconds) "
-                    "VALUES (:run_id, :record_count, :runtime_seconds)"
-                ),
-                {"run_id": run_id, "record_count": record_count, "runtime_seconds": runtime_seconds},
-            )
-        logger.info(
-            "pipeline_runs <- run_id=%s record_count=%s runtime_seconds=%.1f",
-            run_id, record_count, runtime_seconds or 0.0,
-        )
+    check_kafka_health = _runner_task(
+        "check_kafka_health",
+        _STEPS + ["kafka-health"],
+        skip_on_exit_code=_SKIP_EXIT_CODE,
+    )
+    sync_iceberg_to_postgres = _runner_task(
+        "sync_iceberg_to_postgres",
+        _STEPS + ["sync"],
+    )
+    run_great_expectations = _runner_task(
+        "run_great_expectations",
+        ["python", "-m", "transform.great_expectations.run_validation"],
+    )
+    run_dbt_staging = _runner_task(
+        "run_dbt_staging",
+        _DBT + ["stg_incidents", "stg_ict_vendors"],
+    )
+    run_dbt_marts = _runner_task(
+        "run_dbt_marts",
+        # int_dora_classified (the intermediate view all 3 marts read via ref()) MUST be
+        # selected here — dbt builds selected models in dependency order, so it is created
+        # before the marts. Without it the marts fail: relation int_dora_classified missing.
+        _DBT + ["int_dora_classified", "mart_bafin_report", "mart_vendor_risk", "mart_sla_breach"],
+    )
+    check_compliance_alerts = _runner_task(
+        "check_compliance_alerts",
+        _STEPS + ["compliance-alerts"],
+    )
+    update_pipeline_metadata = _runner_task(
+        "update_pipeline_metadata",
+        _STEPS + ["pipeline-metadata", "--run-id", "{{ run_id }}",
+                  "--started", "{{ dag_run.start_date }}"],
+    )
 
     # ── Task dependency chain (strict order from the spec) ───────────────────────
     (
-        check_kafka_health()
-        >> sync_iceberg_to_postgres()
-        >> run_great_expectations()
-        >> run_dbt_staging()
-        >> run_dbt_marts()
-        >> check_compliance_alerts()
-        >> update_pipeline_metadata()
+        check_kafka_health
+        >> sync_iceberg_to_postgres
+        >> run_great_expectations
+        >> run_dbt_staging
+        >> run_dbt_marts
+        >> check_compliance_alerts
+        >> update_pipeline_metadata
     )
 
 

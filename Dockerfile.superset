@@ -1,0 +1,17 @@
+# Dockerfile.superset — DORA Superset image (Phase 7)
+#
+# The stock apache/superset image does NOT bundle a PostgreSQL driver (that is why
+# Superset's own metadata uses SQLite — decisions.md 2026-05-29). Phase 7 points
+# Superset at the PostgreSQL dbt marts as a DATA SOURCE, which requires the driver,
+# so we add psycopg2-binary on top of the stock image.
+#
+# Build:   docker compose build superset
+#          (or: docker build -f Dockerfile.superset -t dora/superset:latest .)
+
+FROM apache/superset:latest
+
+# Superset 6.x runs from a uv-managed venv at /app/.venv that has no `pip`; install
+# the driver INTO that venv with uv (psycopg2-binary ships as a wheel, no compiler).
+USER root
+RUN uv pip install --python /app/.venv/bin/python psycopg2-binary
+USER superset

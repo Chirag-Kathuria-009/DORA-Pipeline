@@ -1,0 +1,40 @@
+# Dockerfile.runner — DORA pipeline-runner image (Phase 6, Option B)
+#
+# Every Airflow task runs a command inside THIS image via DockerOperator, because the
+# heavy pipeline tools (pyiceberg/pandas/sqlalchemy/dbt/great-expectations/confluent-kafka)
+# cannot live in Airflow 2.8's own env (Airflow pins SQLAlchemy <2.0, PyIceberg needs >=2.0).
+# See decisions.md (Phase 6 — Option B).
+#
+# Build:   docker compose build pipeline-runner
+#          (or: docker build -f Dockerfile.runner -t dora/pipeline-runner:latest .)
+#
+# Hybrid model: the repo is COPYed in so the image is a self-contained deploy artifact,
+# AND for local runs the DAG bind-mounts the host repo over /opt/dora so the live SQLite
+# Iceberg catalog (dora_catalog.db) is shared with the host streaming job.
+
+FROM python:3.11-slim
+
+WORKDIR /opt/dora
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH=/opt/dora \
+    DORA_PROJECT_ROOT=/opt/dora
+
+# git is required by `dbt deps` (it clones package repos from dbt Hub / GitHub).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install deps first (better layer caching). Installs the full requirements.txt per the
+# logged decision; note pyspark is included but unused by the DAG tasks (known bloat).
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy the rest of the repo into the image (immutable artifact for deploy).
+COPY . .
+
+# Vendor dbt packages (dbt_utils) into the image so `dbt run` works without network.
+RUN cd transform/dbt_project && dbt deps
+
+CMD ["python", "-c", "print('dora pipeline-runner ready')"]

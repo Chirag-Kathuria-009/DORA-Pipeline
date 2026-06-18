@@ -21,9 +21,24 @@ x-airflow-common:
     AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
     AIRFLOW__CORE__LOAD_EXAMPLES: "false"
     AIRFLOW__LOGGING__LOGGING_LEVEL: INFO
+    # Option B: install the Docker provider into the stock image at container start
+    # (so the DAG's DockerOperator imports) without building a custom Airflow image.
+    _PIP_ADDITIONAL_REQUIREMENTS: apache-airflow-providers-docker==3.9.1
+    # Host absolute path to the repo. The DAG bind-mounts this into each runner
+    # container; docker.sock mount sources resolve on the HOST, not in this container.
+    DORA_HOST_PROJECT_ROOT: ${DORA_HOST_PROJECT_ROOT}
+    # Forwarded by the DAG into runner containers (in-network creds for sync/dbt/GE).
+    POSTGRES_USER: ${POSTGRES_USER}
+    POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    POSTGRES_DB: ${POSTGRES_DB}
+    MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+    MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
   volumes:
     - ./orchestration/dags:/opt/airflow/dags:ro
     - airflow-logs:/opt/airflow/logs
+    # LocalExecutor runs tasks in the scheduler; it launches sibling runner
+    # containers on the host Docker daemon via the mounted socket.
+    - /var/run/docker.sock:/var/run/docker.sock
   networks:
     - dora-net
 
@@ -74,8 +89,13 @@ services:
       test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list"]
       interval: 15s
       timeout: 10s
-      retries: 5
-      start_period: 30s
+      # Generous start_period + retries: on a cold boot the broker (JVM start +
+      # replaying existing topic logs) can take >30s to answer the first probe,
+      # which previously aborted dependents (kafka-ui) with "dependency failed to
+      # start: container dora-kafka is unhealthy". start_period failures don't count
+      # against retries, so this just widens the warmup window.
+      retries: 10
+      start_period: 90s
     networks:
       - dora-net
     restart: unless-stopped
@@ -201,7 +221,7 @@ services:
   # ── Superset Init (one-shot: DB migration + admin user creation) ───────────
   # Superset metadata uses SQLite (see decisions.md) — no postgres dependency
   superset-init:
-    image: apache/superset:latest
+    image: dora/superset:latest
     container_name: dora-superset-init
     environment:
       SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY}
@@ -226,8 +246,13 @@ services:
     restart: "no"
 
   # ── Superset ───────────────────────────────────────────────────────────────
+  # Custom image (Dockerfile.superset) = stock apache/superset + psycopg2-binary,
+  # so Superset can read the PostgreSQL dbt marts (Phase 7). See decisions.md.
   superset:
-    image: apache/superset:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.superset
+    image: dora/superset:latest
     container_name: dora-superset
     depends_on:
       superset-init:
@@ -240,10 +265,27 @@ services:
     volumes:
       - ./dashboard/superset_config.py:/app/superset_config.py:ro
       - superset-data:/app/superset_home
-    command: superset run -p 8088 --with-threads
+    # -h 0.0.0.0 is REQUIRED: `superset run` (Flask dev server) defaults to binding
+    # 127.0.0.1 INSIDE the container, so the 8088 port mapping reaches nothing and the
+    # host browser gets ERR_EMPTY_RESPONSE. Binding 0.0.0.0 makes it reachable.
+    command: superset run -h 0.0.0.0 -p 8088 --with-threads
     networks:
       - dora-net
     restart: unless-stopped
+
+  # ── Pipeline runner (Phase 6, Option B) ─────────────────────────────────────
+  # Image that every Airflow DockerOperator task runs in (pyiceberg/pandas/dbt/GE/
+  # confluent-kafka). NOT started by `docker compose up` — the `tools` profile keeps
+  # it build-only. Build it with:  docker compose build pipeline-runner
+  pipeline-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile.runner
+    image: dora/pipeline-runner:latest
+    profiles:
+      - tools
+    networks:
+      - dora-net
 
 # ── Named volumes ─────────────────────────────────────────────────────────────
 volumes:
@@ -258,4 +300,7 @@ volumes:
 # ── Networks ──────────────────────────────────────────────────────────────────
 networks:
   dora-net:
+    # Fixed name (not the compose-prefixed default) so the DAG's DockerOperator
+    # sibling containers can join it via network_mode: "dora-net".
+    name: dora-net
     driver: bridge
